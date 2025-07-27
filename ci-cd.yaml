@@ -1,0 +1,143 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  SONAR_PROJECT_KEY: youtube-cicd
+  SONAR_PROJECT_NAME: youtube-cicd
+  DOCKER_IMAGE: hlaingminpaing/youtube-clone
+  K8S_NAMESPACE: default
+  APP_NAME: youtube-clone
+  TRIVY_IMAGE_REPORT: trivyimage.txt
+  TRIVY_FS_REPORT: trivyfs.txt
+
+permissions:
+  contents: write
+  
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '16'
+
+    - name: Set up JDK
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '21'
+
+    - name: Install dependencies
+      run: |
+        node -v
+        npm install
+
+    - name: Run SonarQube Analysis (Self-Hosted)
+      uses: SonarSource/sonarqube-scan-action@v5
+      env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: http://13.250.32.137:9000
+
+    - name: Wait for SonarQube Quality Gate
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+        SONAR_PROJECT_KEY: ${{ env.SONAR_PROJECT_KEY }}
+      run: |
+        echo "Checking SonarQube Quality Gate status..."
+        status="PENDING"
+        timeout=300
+        interval=10
+        elapsed=0
+        while [[ "$status" == "PENDING" ]] && [[ $elapsed -lt $timeout ]]; do
+          sleep $interval
+          elapsed=$((elapsed + interval))
+          qualityGateStatus=$(curl -s -u $SONAR_TOKEN: "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=$SONAR_PROJECT_KEY" | jq -r '.projectStatus.status')
+          echo "Current status: $qualityGateStatus"
+          if [[ "$qualityGateStatus" != "PENDING" ]]; then
+            status=$qualityGateStatus
+          fi
+        done
+        if [[ "$status" != "OK" ]]; then
+          echo "Quality gate failed with status: $status"
+          exit 1
+        fi
+    
+    - name: Run Trivy File System Scan
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        format: 'table'
+        output: ${{ env.TRIVY_FS_REPORT }}
+        exit-code: '0'
+
+    - name: Set Docker Image Tag
+      id: vars
+      run: echo "IMAGE_TAG=v1.${{ github.run_number }}" >> $GITHUB_ENV
+
+    - name: Login to DockerHub
+      run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+    - name: Build and Push Docker Image
+      run: |
+        docker build -t $DOCKER_IMAGE:${IMAGE_TAG} .
+        docker push $DOCKER_IMAGE:${IMAGE_TAG}
+
+    - name: Run Trivy Image Scan
+      run: |
+        trivy image --format table -o ${{ env.TRIVY_IMAGE_REPORT }} $DOCKER_IMAGE:${IMAGE_TAG}
+
+    - name: Upload Trivy Reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: trivy-reports
+        path: |
+          ${{ env.TRIVY_FS_REPORT }}
+          ${{ env.TRIVY_IMAGE_REPORT }}
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Update image tag in deployment.yml
+      run: |
+        sed -i "s|image: .*|image: $DOCKER_IMAGE:${{ env.IMAGE_TAG }}|" Kubernetes/deployment.yml
+
+    - name: Commit and push updated deployment
+      run: |
+        git config --global user.name "Hlaing Min Paing"
+        git config --global user.email "you@example.com"
+        git add Kubernetes/deployment.yml
+        git commit -m "Update image to $DOCKER_IMAGE:${{ env.IMAGE_TAG }} [skip ci]" || echo "No changes to commit"
+        git push https://x-access-token:${{ secrets.GH_PAT }}@github.com/${{ github.repository }}.git HEAD:main
+
+    - name: Send Email Notification
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 465
+        username: ${{ secrets.EMAIL_USER }}
+        password: ${{ secrets.EMAIL_PASS }}
+        subject: Build ${{ job.status }} - YouTube Clone
+        to: hlaingminpaing.ygn@gmail.com
+        body: |
+          Build Status: ${{ job.status }}
+          Docker Tag: ${{ env.IMAGE_TAG }}
+          View on GitHub: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        attachments: |
+          trivyfs.txt
+          trivyimage.txt

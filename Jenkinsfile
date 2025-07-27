@@ -64,7 +64,7 @@ pipeline {
             }
         }
         
-        stage('Install Dependencies') {
+        stage('Install Dependencies') { //Install Dependencies
             steps {
                 script {
                     def nodeHome = tool name: 'node20', type: 'nodejs'

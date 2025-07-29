@@ -88,6 +88,11 @@ pipeline {
                 }
             }
         }
+        post {
+            always {
+                archiveArtifacts artifacts: '**/dependency-check-report.*', allowEmptyArchive: true
+            }
+        }
 
 
         stage('TRIVY FS SCAN') {

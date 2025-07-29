@@ -80,28 +80,28 @@ pipeline {
                 }
             }
         }
-        // stage('OWASP Dependency Check') {
-        //     steps {
-        //         withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_API_KEY')]) {
-        //             dependencyCheck additionalArguments: "--scan ./ --disableYarnAudit --disableNodeAudit --nvdApiKey ${NVD_API_KEY}", odcInstallation: 'DP-Check'
-        //             dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-        //         }
-        //     }
-        // }
+        stage('OWASP Dependency Check') {
+            steps {
+                withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_API_KEY')]) {
+                    dependencyCheck additionalArguments: "--scan ./ --disableYarnAudit --disableNodeAudit --nvdApiKey ${NVD_API_KEY}", odcInstallation: 'DP-Check'
+                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
+                }
+            }
+        }
 
 
-        // stage('TRIVY FS SCAN') {
-        //     steps {
-        //         script {
-        //             sh "${TRIVY_HOME}/trivy fs . > ${TRIVY_FS_REPORT}"
-        //         }
-        //     }
-        //     post {
-        //         always {
-        //             archiveArtifacts artifacts: "${TRIVY_FS_REPORT}", allowEmptyArchive: true
-        //         }
-        //     }
-        // }
+        stage('TRIVY FS SCAN') {
+            steps {
+                script {
+                    sh "${TRIVY_HOME}/trivy fs . > ${TRIVY_FS_REPORT}"
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: "${TRIVY_FS_REPORT}", allowEmptyArchive: true
+                }
+            }
+        }
         stage('Set Version') {
             steps {
                 script {
@@ -132,18 +132,18 @@ pipeline {
             }
         }
         
-        // stage('TRIVY') {
-        //     steps {
-        //         script {
-        //             sh "${TRIVY_HOME}/trivy image ${DOCKER_IMAGE_NAME}:${env.IMAGE_TAG} > ${TRIVY_IMAGE_REPORT}"
-        //         }
-        //     }
-        //     post {
-        //         always {
-        //             archiveArtifacts artifacts: "${TRIVY_IMAGE_REPORT}", allowEmptyArchive: true
-        //         }
-        //     }
-        // }
+        stage('TRIVY') {
+            steps {
+                script {
+                    sh "${TRIVY_HOME}/trivy image ${DOCKER_IMAGE_NAME}:${env.IMAGE_TAG} > ${TRIVY_IMAGE_REPORT}"
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: "${TRIVY_IMAGE_REPORT}", allowEmptyArchive: true
+                }
+            }
+        }
     }
 
     //     stage('Deploy to Kubernetes') {
